@@ -1,4 +1,4 @@
-﻿// Flop - Sometimes you fail, and that's OK
+// Flop - Sometimes you fail, and that's OK
 //
 // This is a small investigation into error handling and recovery in FParsec
 // based on the ideas discussed by @ebkalderon in [Error recovery with parser
@@ -67,7 +67,7 @@ let private parseExpr input =
 
 let private test input =
     parseExpr input
-    |> printf "parsed %A"
+    |> printfn "'%s' ~> %A" input
 
 [<EntryPoint>]
 let main argv =
