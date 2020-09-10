@@ -2,7 +2,10 @@
 //
 // This is a small investigation into error handling and recovery in FParsec
 // based on the ideas discussed by @ebkalderon in [Error recovery with parser
-// combinators (using nom)](https://www.eyalkalderon.com/nom-error-recovery/)
+// combinators (using nom)](https://www.eyalkalderon.com/nom-error-recovery/).
+//
+// For a discussion behind this code check out the blog post [Error Recovery in
+// FParsec](https://willspeak.me/2020/09/10/error-recovery-in-fparsec.html).
 
 open FParsec
 
@@ -52,7 +55,7 @@ let expect (p: Parser<'a, State>) err =
         Reply(None)
     attempt p |>> Some <|> raiseErr
 
-/// A variant of `expet` that resolves parser failures with the `Error` syntax
+/// A variant of `expect` that resolves parser failures with the `Error` syntax
 /// node rather than returning an `option`al value.
 let expectSyn (p: Parser<SyntaxNode, State>) err =
     expect p err |>> Option.defaultValue Error
@@ -64,8 +67,8 @@ let error (stream: CharStream<State>) =
     match stream.ReadCharOrNewline() with
     | EOS -> Reply(ReplyStatus.Error, expected "valid expression character")
     | ch ->
-        let err = sprintf "Unexpected character %c" ch
-        stream.UserState.EmitDiagnostic stream.Position err
+        sprintf "Unexpected character %c" ch
+        |> stream.UserState.EmitDiagnostic stream.Position
         Reply(Error)
 
 // ~~~~~~~~~~~~~ The Parser ~~~~~~~~~~~~~~~~~~
