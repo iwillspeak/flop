@@ -4,7 +4,6 @@
 // based on the ideas discussed by @ebkalderon in [Error recovery with parser
 // combinators (using nom)](https://www.eyalkalderon.com/nom-error-recovery/)
 
-open System
 open FParsec
 
 /// Sructured error information to be emitted by our parser.
@@ -13,10 +12,19 @@ type Diagnostic = Diagnostic of Position * string
 /// The output of our parse.
 type SyntaxNode =
     | Value of int64
-    | Product of SyntaxNode * SyntaxNode list
-    | Sum of SyntaxNode * SyntaxNode list
+    | Product of SyntaxNode * SyntaxNode
+    | Sum of SyntaxNode * SyntaxNode
     | Error
 
+/// Binary Node Constructor. Converts the head::tail list from a binary parser
+/// into a `SyntaxNode` by recursively applying `cons`. This has the property of
+/// not wrapping the inner nodes if no `cdr` is at this level for a simpler
+/// syntax tree.
+let rec private binNode cons (car, cdr) =
+    match cdr with
+    | [] -> car
+    | [single] -> cons(car, single)
+    | head::tail -> binNode cons (cons(car, head), tail)
 
 /// Our Parser State. Used to keep track of the diagnostics we encountered while
 /// parsing the source text so far.
@@ -31,14 +39,36 @@ type State =
     /// Initial parser state
     static member Initial = { Diagnostics = [] }
 
+// ~~~~~~~~~~~~~ Error Handling Constructs ~~~~~~~~~~~~~~~~~~
+//
+// These parsers are responsible for handling and syncrhonising after errors are
+// encountered.
+
+/// Expect a given parser to match in the current location. If the parser fails
+/// the given `err` is emitted as a diagnostic at the current location.
 let expect (p: Parser<'a, State>) err =
     let raiseErr (stream: CharStream<State>) =
         stream.UserState.EmitDiagnostic stream.Position err
         Reply(None)
     attempt p |>> Some <|> raiseErr
 
+/// A variant of `expet` that resolves parser failures with the `Error` syntax
+/// node rather than returning an `option`al value.
 let expectSyn (p: Parser<SyntaxNode, State>) err =
     expect p err |>> Option.defaultValue Error
+
+/// Error syncrhonisation. used to parse any characters and emit them as
+/// diagnostics. This is `<|>`ed into the standard combinator chain right at the
+/// root to try and ensure the parser _always_ has a way to succeed.
+let error (stream: CharStream<State>) =
+    match stream.ReadCharOrNewline() with
+    | EOS -> Reply(ReplyStatus.Error, expected "valid expression character")
+    | ch ->
+        let err = sprintf "Unexpected character %c" ch
+        stream.UserState.EmitDiagnostic stream.Position err
+        Reply(Error)
+
+// ~~~~~~~~~~~~~ The Parser ~~~~~~~~~~~~~~~~~~
 
 let expr, exprRef = createParserForwardedToRef()
 
@@ -47,15 +77,15 @@ let value =
 
 let product =
     let op = pchar '*' <|> pchar '/'
-    (value .>>. (many (op >>. expectSyn value "expected expression after operator"))) |>> Product
+    (value .>>. (many (op >>. expectSyn value "expected expression after operator"))) |>> (binNode Product)
 
 let sum =
     let op = pchar '+' <|> pchar '-'
-    (product .>>. (many (op >>. expectSyn product "expected expression after operator"))) |>> Sum
+    (product .>>. (many (op >>. expectSyn product "expected expression after operator"))) |>> (binNode Sum)
 
 exprRef := sum
 
-let parser = expr .>> eof
+let parser = many (expr <|> error) .>> eof
 
 /// Runs the parser on the input string and throws an exception if the parser
 /// fails. We expect the parser should _always_ succeed. For malformed source
@@ -80,5 +110,6 @@ let main argv =
     test "(1"
     test "()"
     test "("
+    test "(*1)+2)"
 
     0 // return an integer exit code
